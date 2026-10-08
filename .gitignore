@@ -1,0 +1,32 @@
+# Python virtual environments
+env/
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor / IDE configuration
+.vscode/
+.idea/
+.qoder/
+
+# Environment and sensitive data
+.env
+
+# OS-generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keyword Extraction Tool</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 Keyword Extraction Tool</h1>
+            <p>Extract keywords using RAKE, TF-IDF, and KeyBERT methods</p>
+        </header>
+
+        <main>
+            <!-- Input Section -->
+            <section class="input-section">
+                <h2>Input Text</h2>
+                <textarea 
+                    id="inputText" 
+                    placeholder="Enter or paste your text here... (minimum 10 characters)"
+                    rows="8"
+                ></textarea>
+                <div class="button-group">
+                    <button id="extractBtn" class="btn btn-primary">
+                        <span class="btn-text">Extract Keywords</span>
+                        <span class="spinner hidden"></span>
+                    </button>
+                    <button id="clearBtn" class="btn btn-secondary">Clear</button>
+                </div>
+                <div id="errorMessage" class="error hidden"></div>
+            </section>
+
+            <!-- Results Section -->
+            <section id="resultsSection" class="results-section hidden">
+                <h2>Extraction Results</h2>
+                
+                <div class="results-grid">
+                    <!-- RAKE Results -->
+                    <div class="result-card">
+                        <div class="card-header rake-header">
+                            <h3>RAKE</h3>
+                            <span class="method-badge">Rapid Automatic Keyword Extraction</span>
+                        </div>
+                        <div class="card-body">
+                            <!-- Step 1: Stopwords -->
+                            <div class="calculation-step">
+                                <h4>Step 1: Identify Stopwords</h4>
+                                <div id="rakeStep1"></div>
+                            </div>
+                            
+                            <!-- Step 2: Phrases -->
+                            <div class="calculation-step">
+                                <h4>Step 2: Split Text into Phrases</h4>
+                                <ol id="rakeStep2"></ol>
+                            </div>
+                            
+                            <!-- Step 3: Word Frequencies -->
+                            <div class="calculation-step">
+                                <h4>Step 3: Calculate Word Frequency</h4>
+                                <table class="calc-table">
+                                    <thead><tr><th>Word</th><th>Frequency</th></tr></thead>
+                                    <tbody id="rakeStep3"></tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Step 4: Word Degrees -->
+                            <div class="calculation-step">
+                                <h4>Step 4: Calculate Word Degree</h4>
+                                <table class="calc-table">
+                                    <thead><tr><th>Word</th><th>Degree</th><th>Explanation</th></tr></thead>
+                                    <tbody id="rakeStep4"></tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Step 5: Word Scores -->
+                            <div class="calculation-step">
+                                <h4>Step 5: Calculate Word Score (Degree / Frequency)</h4>
+                                <table class="calc-table">
+                                    <thead><tr><th>Word</th><th>Calculation</th><th>Score</th></tr></thead>
+                                    <tbody id="rakeStep5"></tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Step 6: Phrase Scores -->
+                            <div class="calculation-step">
+                                <h4>Step 6: Calculate Phrase Score</h4>
+                                <div id="rakeStep6"></div>
+                            </div>
+                            
+                            <div class="keywords-section">
+                                <h4>Final Results</h4>
+                                <table class="keywords-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Rank</th>
+                                            <th>Keyword</th>
+                                            <th>Score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rakeKeywords"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TF-IDF Results -->
+                    <div class="result-card">
+                        <div class="card-header tfidf-header">
+                            <h3>TF-IDF</h3>
+                            <span class="method-badge">Term Frequency-Inverse Document Frequency</span>
+                        </div>
+                        <div class="card-body">
+                            <!-- Step 1: Sentences -->
+                            <div class="calculation-step">
+                                <h4>Step 1: Split Input into Sentences</h4>
+                                <div id="tfidfStep1"></div>
+                            </div>
+                            
+                            <!-- Step 2: Processed Sentences -->
+                            <div class="calculation-step">
+                                <h4>Step 2: Clean and Lemmatize Sentences</h4>
+                                <div id="tfidfStep2"></div>
+                            </div>
+                            
+                            <!-- Step 3: Term Frequencies -->
+                            <div class="calculation-step">
+                                <h4>Step 3: Calculate Term Frequency (TF) per Sentence</h4>
+                                <p>TF = (Word Count) / (Total Words in Sentence)</p>
+                                <div id="tfidfStep3"></div>
+                            </div>
+                            
+                            <!-- Step 4: IDF Calculation -->
+                            <div class="calculation-step">
+                                <h4>Step 4: Calculate Inverse Document Frequency (IDF)</h4>
+                                <p>IDF = log(N / df) + 1</p>
+                                <p>N = <span id="tfidfCorpusSize"></span> sentences (total documents)</p>
+                                <table class="calc-table">
+                                    <thead><tr><th>Word</th><th>df</th><th>Calculation</th><th>IDF</th></tr></thead>
+                                    <tbody id="tfidfStep4"></tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Step 5: TF-IDF Scores -->
+                            <div class="calculation-step">
+                                <h4>Step 5: Calculate TF-IDF Score & Uniqueness</h4>
+                                <p>TF-IDF = TF × IDF</p>
+                                <table class="calc-table">
+                                    <thead><tr><th>Word</th><th>TF</th><th>IDF</th><th>Score</th><th>Uniqueness</th></tr></thead>
+                                    <tbody id="tfidfStep5"></tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="keywords-section">
+                                <h4>Final Results</h4>
+                                <table class="keywords-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Rank</th>
+                                            <th>Keyword</th>
+                                            <th>Score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tfidfKeywords"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KeyBERT Results -->
+                    <div class="result-card">
+                        <div class="card-header keybert-header">
+                            <h3>KeyBERT</h3>
+                            <span class="method-badge">Transformer-based Semantic Extraction</span>
+                        </div>
+                        <div class="card-body">
+                            <!-- Step 1: Document Embedding -->
+                            <div class="calculation-step">
+                                <h4>Step 1: Generate Document Embedding</h4>
+                                <div id="keybertStep1"></div>
+                            </div>
+                            
+                            <!-- Step 2: Candidate Keywords -->
+                            <div class="calculation-step">
+                                <h4>Step 2: Generate Candidate Keywords</h4>
+                                <div id="keybertStep2"></div>
+                            </div>
+                            
+                            <!-- Step 3: Keyword Embeddings -->
+                            <div class="calculation-step">
+                                <h4>Step 3: Generate Keyword Embeddings</h4>
+                                <div id="keybertStep3"></div>
+                            </div>
+                            
+                            <!-- Step 4: Cosine Similarity -->
+                            <div class="calculation-step">
+                                <h4>Step 4: Calculate Cosine Similarity</h4>
+                                <div id="keybertStep4Desc"></div>
+                                <table class="calc-table">
+                                    <thead><tr><th>Keyword</th><th>Similarity Score</th></tr></thead>
+                                    <tbody id="keybertStep4"></tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="keywords-section">
+                                <h4>Final Results</h4>
+                                <table class="keywords-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Rank</th>
+                                            <th>Keyword</th>
+                                            <th>Score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="keybertKeywords"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Built with Flask, RAKE, TF-IDF, and KeyBERT</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
