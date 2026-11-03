@@ -8,6 +8,7 @@ from preprocessing import TextProcessor  # type: ignore
 from rake_extraction import RAKEExtractor  # type: ignore
 from tfidf_extraction import TFIDFExtractor  # type: ignore
 from keybert_extraction import KeyBERTExtractor  # type: ignore
+from app_cli import display_all_methods_calculations, KeywordExtractor  # type: ignore
 import re
 import os
 

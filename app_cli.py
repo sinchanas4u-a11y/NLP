@@ -10,10 +10,25 @@ from collections import Counter
 
 # NLP Libraries
 try:
-    from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore
+    from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer  # type: ignore
+    import numpy as np  # type: ignore
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
+
+# Fixed reference background corpus for TF-IDF training
+REFERENCE_CORPUS = [
+    "Machine learning algorithms and artificial intelligence systems are transforming healthcare data and clinical research.",
+    "Deep learning models assist medical specialists in medical image analysis and automated diagnostic detection.",
+    "Predictive diagnosis tools evaluate patient health records to forecast disease progression and outcomes.",
+    "Artificial intelligence applications are transforming clinical workflows and robotic surgery across modern hospitals.",
+    "Computer vision and digital image processing enhance medical image evaluation and diagnosis accuracy.",
+    "Healthcare organizations leverage machine learning and predictive intelligence for preventative patient care.",
+    "Machine learning and artificial intelligence technologies are driving modern scientific discovery.",
+    "Intelligent systems utilize machine learning frameworks to solve complex pattern recognition tasks.",
+    "Climate change and environmental degradation are increasing global temperatures and altering ecological systems.",
+    "Extreme weather events including severe droughts, recurrent floods, and destructive wildfires impact communities worldwide." 
+]
 
 try:
     from rake_nltk import Rake  # type: ignore
@@ -204,16 +219,18 @@ class TextProcessor:
 class KeywordExtractor:
     """Extracts keywords from text using various NLP methods."""
     
-    def __init__(self, method: str = 'tfidf'):
+    def __init__(self, method: str = 'tfidf', reference_corpus: Optional[List[str]] = None):
         """
         Initialize the keyword extractor.
         
         Args:
             method: Extraction method ('tfidf', 'rake', or 'keybert')
+            reference_corpus: Background corpus to fit TF-IDF vectorizer
         """
         self.method = method.lower()
         self.processor = TextProcessor()
         self.keybert_model = None
+        self.reference_corpus = reference_corpus or REFERENCE_CORPUS
         
         # Validate method
         available_methods = []
@@ -233,178 +250,78 @@ class KeywordExtractor:
     
     def extract_tfidf(self, text: str, top_n: Optional[int] = None) -> List[Tuple[str, float]]:
         """
-        Extract keywords using TF-IDF with proper per-document TF calculation.
+        Extract keywords using TF-IDF fitted on a fixed reference corpus with smooth_idf=True.
         
         Args:
-            text: Input text (single document or multiple documents separated by newlines)
+            text: Input text (single document)
             top_n: Number of top keywords to return (None = return all)
             
         Returns:
-            List of (keyword, score) tuples
+            List of (keyword, score) tuples ranked in descending order
         """
-        from collections import Counter
-        import math
-        import re
-
         try:
-            # Parse documents - treat paragraphs as documents instead of sentences
-            raw_docs = [p.strip() for p in re.split(r'\n+', text) if p.strip()]
-            documents = raw_docs if raw_docs else [text]
+            vectorizer = TfidfVectorizer(smooth_idf=True, stop_words='english')
+            vectorizer.fit(self.reference_corpus)
             
-            if len(documents) == 0:
-                return []
+            tfidf_matrix = vectorizer.transform([text])
+            feature_names = vectorizer.get_feature_names_out()
+            scores = tfidf_matrix.toarray()[0]
             
-            # Remove common stopwords and apply lemmatization
-            stopwords = self.processor.stopwords
+            count_vec = CountVectorizer(vocabulary=vectorizer.vocabulary_, stop_words='english')
+            user_counts = count_vec.transform([text]).toarray()[0]
             
-            processed_docs: List[List[str]] = []
-            for doc in documents:
-                words: List[str] = re.findall(r'\b[a-zA-Z]{3,}\b', doc.lower())
-                content_words: List[str] = []
-                for w in words:
-                    if w not in stopwords:
-                        lemmatized_w = self.processor.lemmatize(w)
-                        content_words.append(lemmatized_w)
-                processed_docs.append(content_words)
+            keyword_scores = []
+            for idx in range(len(feature_names)):
+                if user_counts[idx] > 0 and scores[idx] > 0:
+                    keyword_scores.append((str(feature_names[idx]), float(round(float(scores[idx]), 4))))
             
-            N = len(processed_docs)
-            all_words = set()
-            for doc in processed_docs:
-                all_words.update(doc)
-            
-            def calculate_idf(term):
-                """IDF(t, D) = log(Total documents / Number of documents containing term t)"""
-                df = sum(1 for doc in processed_docs if term in doc)
-                if df == 0:
-                    return 0.0
-                return math.log(float(N) / float(df))
-            
-            word_scores = {}
-            for word in all_words:
-                total_tfidf = 0.0
-                idf = float(calculate_idf(word))
-                
-                for doc in processed_docs:
-                    total_terms = len(doc)
-                    if word in doc and total_terms > 0:
-                        word_count = doc.count(word)
-                        # TF(t, d) = Number of times term t appears in document d / Total number of terms in document d
-                        tf = float(word_count) / float(total_terms)
-                        # TF-IDF(t, d, D) = TF(t, d) × IDF(t, D)
-                        tfidf = tf * idf
-                        total_tfidf += tfidf
-                
-                word_scores[word] = float(total_tfidf)
-            
-            keywords = sorted(word_scores.items(), key=lambda x: x[1], reverse=True)
-            result: List[Tuple[str, float]] = [(str(word), float(round(float(score), 4))) for word, score in keywords]
+            # Rank in descending order of TF-IDF score
+            keyword_scores.sort(key=lambda x: x[1], reverse=True)
             
             if top_n is not None:
-                return result[:int(top_n)]
-            return result
-            
+                return keyword_scores[:int(top_n)]
+            return keyword_scores
         except Exception as e:
             print(f"TF-IDF extraction error: {e}")
             return []
     
-    def extract_tfidf_detailed(self, documents: List[str]) -> Dict[str, Any]:
+    def extract_tfidf_detailed(self, text: str, reference_corpus: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
-        Extract keywords using TF-IDF with detailed calculation steps for multiple documents.
-        
-        Args:
-            documents: List of document strings
-            
-        Returns:
-            Dictionary with detailed calculation steps and results per document
+        Extract keywords with detailed breakdown:
+        keyword, term frequency, document frequency, IDF, TF-IDF score, and final rank.
         """
-        from collections import Counter
-        import math
-        import re
+        ref_corpus = reference_corpus or self.reference_corpus
+        vectorizer = TfidfVectorizer(smooth_idf=True, stop_words='english')
+        vectorizer.fit(ref_corpus)
         
-        try:
-            # Parse documents safely
-            stopwords = self.processor.stopwords
-            
-            processed_docs: List[List[str]] = []
-            doc_tokens: List[List[str]] = []
-            for doc in documents:
-                words: List[str] = re.findall(r'\b[a-zA-Z]{3,}\b', doc.lower())
-                doc_tokens.append(words)
-                content_words: List[str] = []
-                for w in words:
-                    if w not in stopwords:
-                        lemmatized_w = self.processor.lemmatize(w)
-                        content_words.append(lemmatized_w)
-                processed_docs.append(content_words)
-            
-            N = len(processed_docs)
-            all_words = set()
-            for doc in processed_docs:
-                all_words.update(doc)
-            
-            def calculate_idf(term):
-                """IDF(t, D) = log(Total documents / Number of documents containing term t)"""
-                df = sum(1 for doc in processed_docs if term in doc)
-                if df == 0:
-                    return 0.0
-                return math.log(float(N) / float(df))
-            
-            doc_results = []
-            for i, (doc_content, tokens) in enumerate(zip(processed_docs, doc_tokens)):
-                word_counts = Counter(doc_content)
-                total_words_in_doc = len(doc_content)
-                
-                tf_data = {}
-                for word, count in word_counts.items():
-                    # TF(t, d) = Number of times term t appears in document d / Total number of terms in document d
-                    tf = float(count) / float(total_words_in_doc) if total_words_in_doc > 0 else 0.0
-                    tf_data[word] = {'count': int(count), 'tf': float(tf), 'total': int(total_words_in_doc)}
-                
-                tfidf_data = []
-                for word in word_counts.keys():
-                    tf = tf_data[word]['tf']
-                    idf = calculate_idf(word)
-                    # TF-IDF(t, d, D) = TF(t, d) × IDF(t, D)
-                    tfidf = tf * idf
-                    tfidf_data.append({
-                        'word': str(word),
-                        'tf': float(tf),
-                        'idf': float(idf),
-                        'tfidf': float(tfidf)
-                    })
-                
-                tfidf_data.sort(key=lambda x: x['tfidf'], reverse=True)
-                
-                doc_results.append({
-                    'doc_id': i + 1,
-                    'original': documents[i],
-                    'tokens': tokens,
-                    'content_words': doc_content,
-                    'total_words': total_words_in_doc,
-                    'tf_data': tf_data,
-                    'tfidf_data': tfidf_data
+        tfidf_matrix = vectorizer.transform([text])
+        feature_names = vectorizer.get_feature_names_out()
+        scores = tfidf_matrix.toarray()[0]
+        idf_values = vectorizer.idf_
+        
+        count_vec = CountVectorizer(vocabulary=vectorizer.vocabulary_, stop_words='english')
+        user_tf = count_vec.transform([text]).toarray()[0]
+        ref_counts = count_vec.transform(ref_corpus)
+        ref_df = np.asarray((ref_counts > 0).sum(axis=0)).flatten()
+        
+        results = []
+        for idx in range(len(feature_names)):
+            if user_tf[idx] > 0:
+                results.append({
+                    'keyword': str(feature_names[idx]),
+                    'tf': int(user_tf[idx]),
+                    'df': int(ref_df[idx]),
+                    'idf': float(round(float(idf_values[idx]), 4)),
+                    'tfidf': float(round(float(scores[idx]), 4))
                 })
+        
+        # Rank keywords by TF-IDF score in descending order
+        results.sort(key=lambda x: (x['tfidf'], x['idf']), reverse=True)
+        for rank, item in enumerate(results, 1):
+            item['rank'] = rank
             
-            idf_data = []
-            for word in sorted(all_words):
-                df = sum(1 for doc in processed_docs if word in doc)
-                idf = calculate_idf(word)
-                idf_data.append({
-                    'word': str(word),
-                    'df': int(df),
-                    'idf': float(idf)
-                })
-            
-            return {
-                'total_documents': int(N),
-                'documents': doc_results,
-                'idf_data': idf_data
-            }
-            
-        except Exception as e:
-            print(f"TF-IDF detailed extraction error: {e}")
-            return {}
-    
+        return results
+
     def extract_rake(self, text: str, top_n: Optional[int] = None) -> List[Tuple[str, float]]:
         """
         Extract keywords using RAKE.
@@ -549,102 +466,79 @@ def find_stopwords_in_text(text: str, stopwords: set) -> Tuple[List[str], List[s
     return all_stopwords, unique_stopwords, len(all_stopwords)
 
 
-def calculate_rake_metrics(text: str, stopwords: set) -> dict:
-    """
-    Calculate RAKE metrics using co-occurrence excluding itself for degree.
-    
-    Args:
-        text: Input text
-        stopwords: Set of stopwords
-        
-    Returns:
-        Dictionary with word frequencies, degrees, and scores
-    """
-    # Clean and split into words
-    text = re.sub(r'[^a-zA-Z\s]', ' ', text.lower())
-    words = text.split()
-    
-    # Filter out stopwords to get content words
-    content_words_list = [w for w in words if w not in stopwords and len(w) > 2]
-    unique_content_words = list(set(content_words_list))
-    
-    # Calculate word frequency
-    freq = Counter(content_words_list)
-    
-    # Build co-occurrence matrix (words co-occur if they appear in the same phrase/sentence)
-    # Split text into phrases by stopwords
-    phrases = []
-    current_phrase = []
-    for word in words:
-        if word in stopwords or len(word) <= 2:
-            if current_phrase:
-                phrases.append(current_phrase)
-                current_phrase = []
-        else:
-            current_phrase.append(word)  # type: ignore
-    if current_phrase:
-        phrases.append(current_phrase)
-    
-    # Calculate word degree using co-occurrence (excluding itself)
-    # Degree = sum of co-occurrences with other words (not including itself)
-    degree = Counter()
-    
-    for phrase in phrases:
-        unique_words_in_phrase = list(set(phrase))
-        for word in unique_words_in_phrase:
-            if word in unique_content_words:
-                # Co-occurrence with other words in the same phrase (excluding itself)
-                co_occurring = [w for w in unique_words_in_phrase if w != word and w in unique_content_words]
-                degree[word] += len(co_occurring)  # type: ignore
-    
-    # Calculate word score (degree / frequency)
-    scores = {}
-    for word in freq:
-        scores[word] = degree[word] / freq[word] if freq[word] > 0 else 0
-    
-    return {
-        'frequencies': freq,
-        'degrees': degree,
-        'scores': scores,
-        'content_words': content_words_list
-    }
-
-
 def get_phrases_split_by_stopwords(text: str, stopwords: set) -> List[str]:
     """
-    Split text into phrases using stopwords as delimiters.
-    
-    Args:
-        text: Input text
-        stopwords: Set of stopwords
-        
-    Returns:
-        List of phrases
+    Split text into candidate phrases using both stopwords and punctuation as delimiters.
+    Commas, periods, semicolons, hyphens, colons, brackets, quotes, numbers,
+    special characters, and stopwords all act as phrase boundaries.
     """
-    # Clean text
-    text = re.sub(r'[^a-zA-Z\s]', ' ', text.lower())
-    words = text.split()
+    if not text or not text.strip():
+        return []
     
+    # Tokenize contiguous alphabetic words and any non-letter/non-space character
+    tokens = re.findall(r'[a-zA-Z]+|[^a-zA-Z\s]', text)
     phrases = []
     current_phrase = []
-    
-    for word in words:
-        if word in stopwords or len(word) <= 2:
-            # End current phrase if we have words
+
+    for token in tokens:
+        if re.match(r'^[a-zA-Z]+$', token):
+            word = token.lower()
+            if word in stopwords or len(word) <= 2:
+                if current_phrase:
+                    phrases.append(' '.join(current_phrase))
+                    current_phrase = []
+            else:
+                current_phrase.append(word)
+        else:
+            # Punctuation (commas, periods, semicolons, hyphens, etc.), numbers, symbols
             if current_phrase:
                 phrases.append(' '.join(current_phrase))
                 current_phrase = []
-        else:
-            current_phrase.append(word)  # type: ignore
-    
-    # Don't forget the last phrase
+
     if current_phrase:
         phrases.append(' '.join(current_phrase))
-    
-    # Filter out empty phrases and single words (keep only meaningful phrases)
-    phrases = [p for p in phrases if len(p.split()) >= 1]
-    
-    return phrases
+
+    # Keep all non-empty phrases, including single-word phrases
+    return [p.strip() for p in phrases if p.strip()]
+
+
+def calculate_rake_metrics(text: str, stopwords: set) -> dict:
+    """
+    Calculate RAKE metrics using candidate phrases split by stopwords and punctuation.
+    Degree is calculated as co-occurrence count excluding itself.
+    """
+    if not text or not text.strip():
+        return {
+            'frequencies': {},
+            'degrees': {},
+            'scores': {},
+            'content_words': []
+        }
+
+    phrases = get_phrases_split_by_stopwords(text, stopwords)
+    phrase_words_list = [p.split() for p in phrases]
+    content_words_list = [w for p in phrase_words_list for w in p]
+    unique_content_words = set(content_words_list)
+    freq = Counter(content_words_list)
+
+    degree = Counter()
+    for p_words in phrase_words_list:
+        unique_in_phrase = list(set(p_words))
+        for word in unique_in_phrase:
+            if word in unique_content_words:
+                co_occurring = [w for w in unique_in_phrase if w != word and w in unique_content_words]
+                degree[word] += len(co_occurring)
+
+    scores = {}
+    for word in freq:
+        scores[word] = float(degree[word]) / float(freq[word]) if freq[word] > 0 else 0.0
+
+    return {
+        'frequencies': dict(freq),
+        'degrees': dict(degree),
+        'scores': scores,
+        'content_words': content_words_list
+    }
 
 
 def display_combined_output(keywords: List[Tuple[str, float]], method: str, text: str, stopwords: set):
@@ -750,7 +644,7 @@ def display_all_methods_calculations(text: str, documents: Optional[List[str]] =
     
     # Step 2: Split into phrases
     phrases = get_phrases_split_by_stopwords(first_doc, stopwords)
-    print("\nStep 2: Split Text into Phrases (by stopwords)")
+    print("\nStep 2: Split Text into Phrases (by stopwords and punctuation)")
     print("-" * 50)
     for i, phrase in enumerate(phrases, 1):
         if phrase.strip():
@@ -804,118 +698,44 @@ def display_all_methods_calculations(text: str, documents: Optional[List[str]] =
         print(f"  {i}. {keyword:<25} score: {score:.1f}")
     
     # ============================================
-    # TF-IDF CALCULATIONS (Multi-Document)
+    # TF-IDF (Term Frequency-Inverse Document Frequency)
     # ============================================
     print("\n" + "=" * 70)
     print("TF-IDF (Term Frequency-Inverse Document Frequency)")
     print("=" * 70)
     
-    print("\nINPUT DOCUMENTS:")
-    for i, doc in enumerate(documents, 1):
-        print(f"Document {i}: \"{doc}\"")
+    ref_corpus = tfidf_extractor.reference_corpus
+    N = len(ref_corpus)
     
-    from collections import Counter
-    import math
+    print(f"\nREFERENCE BACKGROUND CORPUS ({N} documents):")
+    for i, doc in enumerate(ref_corpus, 1):
+        print(f"  Doc {i}: \"{doc}\"")
     
-    # Process all documents using the new logic
-    processed_docs = []
-    doc_tokens = []
-    for doc in documents:
-        # Lowercase and find words (min 3 chars)
-        words = re.findall(r'\b[a-zA-Z]{3,}\b', doc.lower())
-        doc_tokens.append(words)
-        # Apply lemmatization with "models" exception
-        content_words = []
-        for w in words:
-            if w not in stopwords:
-                lemmatized_w = tfidf_extractor.processor.lemmatize(w)
-                content_words.append(lemmatized_w)
-        processed_docs.append(content_words)
+    print(f"\nUSER INPUT DOCUMENT:")
+    print(f"\"{first_doc}\"")
     
-    print("\n" + "-" * 60)
-    print("STEP 1 - STOPWORDS REMOVED & LEMMATIZED:")
-    print("-" * 60)
-    for i, doc in enumerate(processed_docs, 1):
-        print(f"Document {i}: {', '.join(doc)}")
+    print("\n" + "-" * 70)
+    print("TF-IDF CALCULATION FORMULAS:")
+    print("  • Term Frequency (TF): Word count in user's input text")
+    print(f"  • Document Frequency (DF): Document occurrences across {N} reference documents")
+    print("  • IDF Score: ln((1 + N) / (1 + DF)) + 1  [smooth_idf=True]")
+    print("  • TF-IDF Score: L2-normalized TF-IDF from vectorizer.transform([user_text])")
+    print("-" * 70)
     
-    # Calculate TF for each document
-    print("\n" + "-" * 60)
-    print("STEP 2 - TF CALCULATION (Corrected):")
-    print("(TF = Word Count / Total Words in that Document)")
-    print("-" * 60)
+    tfidf_detailed = tfidf_extractor.extract_tfidf_detailed(first_doc, ref_corpus)
     
-    doc_tf_data = []
-    for i, doc in enumerate(processed_docs, 1):
-        word_counts = Counter(doc)
-        total_words = len(doc)  # type: ignore
-        print(f"\nDocument {i} (Total Words = {total_words}):")
-        tf_data = {}
-        for word, count in word_counts.items():  # type: ignore
-            tf = float(count) / float(total_words) if total_words > 0 else 0.0
-            tf_data[word] = tf
-            print(f"  {word:<12} = {count}/{total_words} = {tf:.3f}")
-        doc_tf_data.append(tf_data)
+    print("\n" + "-" * 80)
+    print("TF-IDF KEYWORD EXTRACTION RESULTS:")
+    print("(Ranked by TF-IDF Score in Descending Order)")
+    print("-" * 80)
+    print(f"{'Rank':<6} | {'Keyword':<16} | {'Term Freq':<10} | {'Doc Freq':<10} | {'IDF Score':<12} | {'TF-IDF Score':<12}")
+    print("-" * 80)
+    for item in tfidf_detailed:
+        print(f"{item['rank']:<6} | {item['keyword']:<16} | {item['tf']:<10} | {item['df']:<10} | {item['idf']:<12.4f} | {item['tfidf']:<12.4f}")
+    print("-" * 80)
     
-    # Calculate IDF
-    N = len(processed_docs)
-    all_words = set()
-    for doc in processed_docs:
-        all_words.update(doc)
-    
-    print("\n" + "-" * 60)
-    print("STEP 3 - IDF CALCULATION (Corrected):")
-    print(f"(IDF = log(Total Documents / Documents containing the word))")
-    print(f"Total Documents = {N}")
-    print("-" * 60)
-    print(f"{'Word':<12} {'In Docs':<10} {'IDF Calculation':<25} {'IDF Score'}")
-    
-    idf_values = {}
-    for word in sorted(all_words):
-        df = sum(1 for doc in processed_docs if word in doc)
-        idf = math.log(float(N) / float(df))
-        idf_values[word] = idf
-        idx_calc = f"log({N}/{df})"
-        print(f"  {word:<12} {df:<10} {idx_calc:<25} {idf:.3f}")
-    
-    # Calculate TF-IDF for each document
-    print("\n" + "-" * 60)
-    print("STEP 4 - TF-IDF SCORE CALCULATION (Corrected):")
-    print("(TF-IDF = TF x IDF)")
-    print("-" * 60)
-    
-    doc_tfidf_results = []
-    for i, (doc, tf_data) in enumerate(zip(processed_docs, doc_tf_data), 1):
-        print(f"\nDocument {i}:")
-        results = []
-        for word in tf_data.keys():
-            tf = float(tf_data[word])
-            idf = float(idf_values[word])
-            tfidf = tf * idf
-            results.append((word, tfidf, tf, idf))
-            print(f"  {word:<12} = {tf:.3f} x {idf:.3f} = {tfidf:.3f}")
-        
-        # Sort by TF-IDF score
-        results.sort(key=lambda x: x[1], reverse=True)
-        doc_tfidf_results.append(results)
-    
-    # Final results
-    print("\n" + "-" * 60)
-    print("STEP 5 - FINAL KEYWORDS PER DOCUMENT:")
-    print("(Sorted by TF-IDF Score - Highest First)")
-    print("-" * 60)
-    
-    for i, results in enumerate(doc_tfidf_results, 1):
-        print(f"\nDocument {i} Keywords:")
-        for j, (word, score, tf, idf) in enumerate(results, 1):
-            uniqueness = "unique to this doc - high score" if idf > 0.4 else "common across docs - low score"
-            print(f"  {j}. {word:<12} score: {score:.3f}  ({uniqueness})")
-    
-    print("\n" + "=" * 70)
-    print("KEY OBSERVATION:")
-    print("- Words unique to one document  -> HIGH TF-IDF score")
-    print("- Words common across documents -> LOW TF-IDF score")
-    print("=" * 70)
-    
+    tfidf_keywords = [(item['keyword'], item['tfidf']) for item in tfidf_detailed]
+
     # ============================================
     # KeyBERT CALCULATIONS
     # ============================================

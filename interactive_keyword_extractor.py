@@ -40,6 +40,17 @@ except ImportError:
     KEYBERT_AVAILABLE = False
 
 
+REFERENCE_CORPUS = [
+    'Machine learning algorithms and artificial intelligence systems are transforming healthcare data and clinical research.',
+    'Deep learning models assist medical specialists in medical image analysis and automated diagnostic detection.',
+    'Predictive diagnosis tools evaluate patient health records to forecast disease progression and outcomes.',
+    'Artificial intelligence applications are transforming clinical workflows and robotic surgery across modern hospitals.',
+    'Computer vision and digital image processing enhance medical image evaluation and diagnosis accuracy.',
+    'Healthcare organizations leverage machine learning and predictive intelligence for preventative patient care.',
+    'Machine learning and artificial intelligence technologies are driving modern scientific discovery.',
+    'Intelligent systems utilize machine learning frameworks to solve complex pattern recognition tasks.'
+]
+
 class TextProcessor:
     """Handles text cleaning and preprocessing."""
     
@@ -200,33 +211,21 @@ class KeywordExtractor:
         Returns:
             List of (keyword, score) tuples
         """
-        # Create a corpus with the text and a portion of it
-        corpus = [text, text[:len(text)//2] if len(text) > 20 else text]  # type: ignore
-        
-        # Initialize TF-IDF vectorizer
+        # Initialize TF-IDF vectorizer with smooth_idf=True fitted on fixed reference corpus
         vectorizer = TfidfVectorizer(
-            max_features=1000,
-            ngram_range=(1, 2),
-            stop_words='english',
-            min_df=1,
-            max_df=1.0
+            smooth_idf=True,
+            stop_words='english'
         )
         
         try:
-            # Fit and transform
-            tfidf_matrix = vectorizer.fit_transform(corpus)
+            vectorizer.fit(REFERENCE_CORPUS)
+            tfidf_matrix = vectorizer.transform([text])
             feature_names = vectorizer.get_feature_names_out()
-            
-            # Get scores for the first document
             scores = tfidf_matrix[0].toarray().flatten()
             
-            # Create keyword-score pairs
-            keywords = [(feature_names[i], float(scores[i])) for i in range(len(feature_names))]
-            
-            # Sort by score descending
+            keywords = [(feature_names[i], float(scores[i])) for i in range(len(feature_names)) if scores[i] > 0]
             keywords.sort(key=lambda x: x[1], reverse=True)
-            
-            return keywords[:top_n]  # type: ignore
+            return keywords[:top_n] if top_n else keywords
         except Exception as e:
             print(f"TF-IDF extraction error: {e}")
             return []
