@@ -259,17 +259,27 @@ class KeywordExtractor:
         Returns:
             List of (keyword, score) tuples ranked in descending order
         """
+        if not text or not text.strip():
+            return []
         try:
-            vectorizer = TfidfVectorizer(smooth_idf=True, stop_words='english')
-            vectorizer.fit(self.reference_corpus)
-            
-            tfidf_matrix: Any = vectorizer.transform([text])
+            dynamic_corpus = list(self.reference_corpus) + [text]
+            vectorizer = TfidfVectorizer(
+                smooth_idf=True,
+                norm=None,
+                stop_words='english',
+                token_pattern=r'(?u)\b[a-zA-Z]+\b'
+            )
+            tfidf_matrix: Any = vectorizer.fit_transform(dynamic_corpus)
             feature_names = vectorizer.get_feature_names_out()
-            scores = np.asarray(tfidf_matrix.toarray())[0]
+            scores = np.asarray(tfidf_matrix[-1].toarray()).flatten()
             
-            count_vec = CountVectorizer(vocabulary=vectorizer.vocabulary_, stop_words='english')
+            count_vec = CountVectorizer(
+                vocabulary=vectorizer.vocabulary_,
+                stop_words='english',
+                token_pattern=r'(?u)\b[a-zA-Z]+\b'
+            )
             user_tf_mat: Any = count_vec.transform([text])
-            user_counts = np.asarray(user_tf_mat.toarray())[0]
+            user_counts = np.asarray(user_tf_mat.toarray()).flatten()
             
             keyword_scores = []
             for idx in range(len(feature_names)):
@@ -277,7 +287,7 @@ class KeywordExtractor:
                     keyword_scores.append((str(feature_names[idx]), float(round(float(scores[idx]), 4))))
             
             # Rank in descending order of TF-IDF score
-            keyword_scores.sort(key=lambda x: x[1], reverse=True)
+            keyword_scores.sort(key=lambda x: (x[1], x[0]), reverse=True)
             
             if top_n is not None:
                 return keyword_scores[:top_n]
@@ -288,37 +298,62 @@ class KeywordExtractor:
     
     def extract_tfidf_detailed(self, text: str, reference_corpus: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
-        Extract keywords with detailed breakdown:
+        Extract keywords with detailed breakdown using dynamic corpus:
         keyword, term frequency, document frequency, IDF, TF-IDF score, and final rank.
         """
         ref_corpus = reference_corpus or self.reference_corpus
-        vectorizer = TfidfVectorizer(smooth_idf=True, stop_words='english')
-        vectorizer.fit(ref_corpus)
-        
-        tfidf_matrix: Any = vectorizer.transform([text])
+        if not text or not text.strip():
+            return []
+            
+        dynamic_corpus = list(ref_corpus) + [text]
+        vectorizer = TfidfVectorizer(
+            smooth_idf=True,
+            norm=None,
+            stop_words='english',
+            token_pattern=r'(?u)\b[a-zA-Z]+\b'
+        )
+        try:
+            tfidf_matrix: Any = vectorizer.fit_transform(dynamic_corpus)
+        except ValueError:
+            return []
+            
         feature_names = vectorizer.get_feature_names_out()
-        scores = np.asarray(tfidf_matrix.toarray())[0]
+        scores = np.asarray(tfidf_matrix[-1].toarray()).flatten()
         idf_values = vectorizer.idf_
         
-        count_vec = CountVectorizer(vocabulary=vectorizer.vocabulary_, stop_words='english')
+        count_vec = CountVectorizer(
+            vocabulary=vectorizer.vocabulary_,
+            stop_words='english',
+            token_pattern=r'(?u)\b[a-zA-Z]+\b'
+        )
         user_tf_mat: Any = count_vec.transform([text])
-        user_tf = np.asarray(user_tf_mat.toarray())[0]
-        ref_counts: Any = count_vec.transform(ref_corpus)
+        user_counts = np.asarray(user_tf_mat.toarray()).flatten()
+        total_content_tokens = int(user_counts.sum())
+        if total_content_tokens == 0:
+            return []
+
+        ref_counts: Any = count_vec.transform(dynamic_corpus)
         ref_df = np.asarray((ref_counts > 0).sum(axis=0)).flatten()
         
         results = []
         for idx in range(len(feature_names)):
-            if user_tf[idx] > 0:
+            count = int(user_counts[idx])
+            if count > 0:
+                df = int(ref_df[idx])
+                tf = count / total_content_tokens
+                idf = float(idf_values[idx])
+                tfidf = tf * idf
                 results.append({
                     'keyword': str(feature_names[idx]),
-                    'tf': int(user_tf[idx]),
-                    'df': int(ref_df[idx]),
-                    'idf': float(round(float(idf_values[idx]), 4)),
-                    'tfidf': float(round(float(scores[idx]), 4))
+                    'count': count,
+                    'tf': float(round(tf, 4)),
+                    'df': df,
+                    'idf': float(round(idf, 4)),
+                    'tfidf': float(round(tfidf, 4))
                 })
         
         # Rank keywords by TF-IDF score in descending order
-        results.sort(key=lambda x: (x['tfidf'], x['idf']), reverse=True)
+        results.sort(key=lambda x: (x['tfidf'], x['idf'], x['keyword']), reverse=True)
         for rank, item in enumerate(results, 1):
             item['rank'] = rank
             
@@ -713,36 +748,84 @@ def display_all_methods_calculations(text: str, documents: Optional[List[str]] =
     print("=" * 70)
     
     ref_corpus = tfidf_extractor.reference_corpus
-    N = len(ref_corpus)
     
-    print(f"\nREFERENCE BACKGROUND CORPUS ({N} documents):")
-    for i, doc in enumerate(ref_corpus, 1):
-        print(f"  Doc {i}: \"{doc}\"")
-    
-    print(f"\nUSER INPUT DOCUMENT:")
-    print(f"\"{first_doc}\"")
-    
-    print("\n" + "-" * 70)
-    print("TF-IDF CALCULATION FORMULAS:")
-    print("  • Term Frequency (TF): Word count in user's input text")
-    print(f"  • Document Frequency (DF): Document occurrences across {N} reference documents")
-    print("  • IDF Score: ln((1 + N) / (1 + DF)) + 1  [smooth_idf=True]")
-    print("  • TF-IDF Score: L2-normalized TF-IDF from vectorizer.transform([user_text])")
-    print("-" * 70)
-    
+    # Step 1: Preprocess Text
+    print("\nStep 1: Preprocess Text")
+    print("-" * 50)
+    raw_tokens = re.findall(r'[a-zA-Z]+', first_doc.lower())
+    ignored_stopwords = [w for w in raw_tokens if w in stopwords]
+    content_tokens = [w for w in raw_tokens if w not in stopwords]
+    print(f"User Input: \"{first_doc}\"")
+    print(f"Extracted Content Tokens: {', '.join(content_tokens) if content_tokens else '(None)'}")
+    print(f"Filtered Stopwords: {', '.join(sorted(set(ignored_stopwords))) if ignored_stopwords else '(None)'}")
+
+    # Step 2: Build Dynamic Corpus
+    print("\nStep 2: Build Dynamic Corpus")
+    print("-" * 50)
+    dynamic_corpus = list(ref_corpus) + [first_doc]
+    N = len(dynamic_corpus)
+    N_ref = len(ref_corpus)
+    print(f"Reference Corpus Size: {N_ref} documents")
+    print(f"Dynamic Corpus: {N_ref} reference docs + 1 user document = {N} total documents")
+    print(f"User Document Location: Index {N-1} (Document {N}, last document in dynamic corpus)")
+
     tfidf_detailed = tfidf_extractor.extract_tfidf_detailed(first_doc, ref_corpus)
     
-    print("\n" + "-" * 80)
-    print("TF-IDF KEYWORD EXTRACTION RESULTS:")
-    print("(Ranked by TF-IDF Score in Descending Order)")
-    print("-" * 80)
-    print(f"{'Rank':<6} | {'Keyword':<16} | {'Term Freq':<10} | {'Doc Freq':<10} | {'IDF Score':<12} | {'TF-IDF Score':<12}")
-    print("-" * 80)
-    for item in tfidf_detailed:
-        print(f"{item['rank']:<6} | {item['keyword']:<16} | {item['tf']:<10} | {item['df']:<10} | {item['idf']:<12.4f} | {item['tfidf']:<12.4f}")
-    print("-" * 80)
-    
-    tfidf_keywords = [(item['keyword'], item['tfidf']) for item in tfidf_detailed]
+    if not tfidf_detailed:
+        print("\nNo keywords extracted (input is empty, whitespace-only, or contains only stopwords).")
+        tfidf_keywords = []
+    else:
+        # Step 3: Calculate Term Frequency
+        total_tokens = sum(item['count'] for item in tfidf_detailed)
+        print("\nStep 3: Calculate Term Frequency (TF)")
+        print("-" * 65)
+        print("Formula: TF = word count in user input / total content-word tokens in user input")
+        print(f"Total content-word tokens in user input = {total_tokens}")
+        print(f"{'Keyword':<16} {'Word Count':<12} {'Formula Calculation':<22} {'TF Score'}")
+        for item in sorted(tfidf_detailed, key=lambda x: (-x['count'], x['keyword'])):
+            calc_str = f"{item['count']} / {total_tokens}"
+            print(f"  {item['keyword']:<16} {item['count']:<12} {calc_str:<22} {item['tf']:.4f}")
+
+        # Step 4: Calculate Document Frequency
+        print("\nStep 4: Calculate Document Frequency (DF)")
+        print("-" * 65)
+        print(f"Count of documents containing each word across all N={N} dynamic corpus documents.")
+        print(f"{'Keyword':<16} {'DF':<6} {'Explanation'}")
+        for item in sorted(tfidf_detailed, key=lambda x: (x['df'], x['keyword'])):
+            in_ref = item['df'] - 1
+            expl = f"1 (user doc) + {in_ref} (ref docs) = {item['df']} doc(s)"
+            print(f"  {item['keyword']:<16} {item['df']:<6} {expl}")
+
+        # Step 5: Calculate Inverse Document Frequency
+        print("\nStep 5: Calculate Inverse Document Frequency (IDF)")
+        print("-" * 65)
+        print(f"Formula: IDF = log((1 + N) / (1 + DF)) + 1  [smooth_idf=True, N={N}]")
+        print(f"{'Keyword':<16} {'DF':<6} {'Formula Calculation':<26} {'IDF Score'}")
+        for item in sorted(tfidf_detailed, key=lambda x: (-x['idf'], x['keyword'])):
+            calc_str = f"ln({1+N}/{1+item['df']}) + 1"
+            print(f"  {item['keyword']:<16} {item['df']:<6} {calc_str:<26} {item['idf']:.4f}")
+
+        # Step 6: Calculate TF-IDF Score
+        print("\nStep 6: Calculate TF-IDF Score")
+        print("-" * 65)
+        print("Formula: TF-IDF = TF × IDF")
+        print(f"{'Keyword':<16} {'TF':<8} {'IDF':<8} {'TF × IDF Calculation':<24} {'TF-IDF Score'}")
+        for item in sorted(tfidf_detailed, key=lambda x: (-x['tfidf'], -x['count'], x['keyword'])):
+            calc_str = f"{item['tf']:.4f} × {item['idf']:.4f}"
+            print(f"  {item['keyword']:<16} {item['tf']:<8.4f} {item['idf']:<8.4f} {calc_str:<24} {item['tfidf']:.4f}")
+
+        # Final Results
+        print("\nTF-IDF Final Results:")
+        print("-" * 88)
+        print("TF-IDF KEYWORD EXTRACTION RESULTS (Ranked by TF-IDF Score in Descending Order):")
+        print("-" * 88)
+        print(f"{'Rank':<6} | {'Keyword':<16} | {'Word Count':<11} | {'TF':<8} | {'DF':<6} | {'IDF':<8} | {'TF-IDF Score':<12}")
+        print("-" * 88)
+        for item in tfidf_detailed:
+            print(f"{item['rank']:<6} | {item['keyword']:<16} | {item['count']:<11} | {item['tf']:<8.4f} | {item['df']:<6} | {item['idf']:<8.4f} | {item['tfidf']:<12.4f}")
+        print("-" * 88)
+        
+        tfidf_keywords = [(item['keyword'], item['tfidf']) for item in tfidf_detailed]
 
     # ============================================
     # KeyBERT CALCULATIONS

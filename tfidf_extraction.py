@@ -1,157 +1,154 @@
 """
-TF-IDF (Term Frequency-Inverse Document Frequency) method manually implemented.
+TF-IDF (Term Frequency-Inverse Document Frequency) method with dynamic reference corpus.
 """
 import re
 import math
 from typing import List, Tuple, Optional, Any, Dict
 from preprocessing import TextProcessor  # type: ignore
 
+# Fixed reference background corpus (10 domain-diverse reference documents)
+REFERENCE_CORPUS = [
+    "Machine learning algorithms and artificial intelligence systems are transforming healthcare data and clinical research.",
+    "Deep learning models assist medical specialists in medical image analysis and automated diagnostic detection.",
+    "Predictive diagnosis tools evaluate patient health records to forecast disease progression and outcomes.",
+    "Artificial intelligence applications are transforming clinical workflows and robotic surgery across modern hospitals.",
+    "Computer vision and digital image processing enhance medical image evaluation and diagnosis accuracy.",
+    "Healthcare organizations leverage machine learning and predictive intelligence for preventative patient care.",
+    "Machine learning and artificial intelligence technologies are driving modern scientific discovery.",
+    "Intelligent systems utilize machine learning frameworks to solve complex pattern recognition tasks.",
+    "Climate change and environmental degradation are increasing global temperatures and altering ecological systems.",
+    "Extreme weather events including severe droughts, recurrent floods, and destructive wildfires impact communities worldwide."
+]
+
 class TFIDFExtractor:
-    """Extracts keywords using manual TF-IDF at paragraph/document level."""
+    """Extracts keywords using manual TF-IDF with a dynamic background corpus."""
     
     def __init__(self, processor: Optional[TextProcessor] = None):
         self.processor = processor or TextProcessor()
+        self.reference_corpus = list(REFERENCE_CORPUS)
         
+    def _extract_content_tokens(self, text: str) -> List[str]:
+        words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
+        tokens: List[str] = []
+        for w in words:
+            if w not in self.processor.stopwords:
+                tokens.append(self.processor.lemmatize(w))
+        return tokens
+
     def extract(self, text: str, top_n: Optional[int] = None) -> List[Tuple[str, float]]:
-        """Extract keywords using custom TF-IDF calculation."""
+        """Extract keywords using dynamic corpus TF-IDF."""
         try:
-            # 1. Treat the entire paragraph/document as a single unit or split by semantic blocks.
-            raw_docs = [p.strip() for p in re.split(r'\n+', text) if p.strip()]
-            if not raw_docs:
-                return []
-            
-            # Preprocess the text
-            processed_docs = []
-            for doc in raw_docs:
-                words = re.findall(r'\b[a-zA-Z]{3,}\b', doc.lower())
-                # Lowercase, remove stopwords, and lemmatize
-                cleaned = [self.processor.lemmatize(w) for w in words if w not in self.processor.stopwords]
-                processed_docs.append(cleaned)
-            
-            if all(not doc for doc in processed_docs):
+            user_tokens = self._extract_content_tokens(text)
+            if not user_tokens:
                 return []
                 
-            N = len(processed_docs)
-            all_words = set(w for doc in processed_docs for w in doc)
+            dynamic_corpus = list(self.reference_corpus) + [text]
+            N = len(dynamic_corpus)
             
-            # DF Calculation
-            df_map = {}
-            for word in all_words:
-                df = sum(1 for doc in processed_docs if word in doc)
-                df_map[word] = df
+            # Preprocess all documents in the dynamic corpus
+            processed_corpus = [self._extract_content_tokens(doc) for doc in dynamic_corpus]
             
-            # Aggregate TF-IDF scores
-            total_tfidf = {}
-            for word in all_words:
-                total_tfidf[word] = 0.0
-                # IDF(t) = log(N / df(t))
-                idf = math.log(N / df_map[word]) if df_map[word] > 0 else 0.0
+            # Calculate DF for each word in user text
+            total_content_tokens = len(user_tokens)
+            user_word_counts: Dict[str, int] = {}
+            for w in user_tokens:
+                user_word_counts[w] = user_word_counts.get(w, 0) + 1
                 
-                # If N=1, log(1/1) = 0. To prevent a completely useless zero-score response
-                # for single documents while strictly honoring the mathematical formula's variables,
-                # we'll use the raw formula exactly, which means keywords in a single doc evaluate to 0 
-                # unless we fallback or it's a multi-document text. We will strict stick to the formula explicitly.
+            scored_keywords: List[Tuple[str, float]] = []
+            for word, count in user_word_counts.items():
+                # TF = count in user text / total content tokens in user text
+                tf = float(count) / float(total_content_tokens) if total_content_tokens > 0 else 0.0
                 
-                for doc in processed_docs:
-                    total_terms = len(doc)
-                    if total_terms == 0:
-                        continue
-                    
-                    term_count = doc.count(word)
-                    if term_count > 0:
-                        # TF(t,d) = count / total_terms
-                        tf = term_count / total_terms
-                        # TF-IDF(t,d) = TF(t,d) * IDF(t)
-                        tfidf = tf * idf
-                        
-                        total_tfidf[word] += tfidf
-                        
-            keywords = [(w, round(float(s), 4)) for w, s in total_tfidf.items()]
-            keywords.sort(key=lambda x: x[1], reverse=True)
-            
-            return keywords[:top_n] if top_n else keywords
-            
+                # DF = number of docs in dynamic corpus containing word
+                df = sum(1 for doc in processed_corpus if word in doc)
+                
+                # Smoothed IDF: ln((1 + N) / (1 + DF)) + 1
+                idf = math.log((1.0 + N) / (1.0 + df)) + 1.0
+                
+                # TF-IDF
+                tfidf = tf * idf
+                scored_keywords.append((word, round(float(tfidf), 4)))
+                
+            scored_keywords.sort(key=lambda x: (x[1], x[0]), reverse=True)
+            return scored_keywords[:top_n] if top_n else scored_keywords
         except Exception as e:
             print(f"TF-IDF extraction error: {e}")
             return []
 
     def get_detailed_results(self, text: str) -> Dict[str, Any]:
-        """Provides detailed step-by-step custom calculations exactly as requested."""
-        raw_docs = [p.strip() for p in re.split(r'\n+', text) if p.strip()]
-        documents = raw_docs if raw_docs else [text]
+        """Provides detailed step-by-step calculations with dynamic corpus."""
+        user_tokens = self._extract_content_tokens(text)
         
-        stopwords = self.processor.stopwords
-        processed_docs: List[List[str]] = []
-        for doc in documents:
-            words = re.findall(r'\b[a-zA-Z]{3,}\b', doc.lower())
-            processed_docs.append([self.processor.lemmatize(w) for w in words if w not in stopwords])
+        dynamic_corpus = list(self.reference_corpus) + [text]
+        N = len(dynamic_corpus)
+        processed_corpus = [self._extract_content_tokens(doc) for doc in dynamic_corpus]
+        
+        # User document index is N - 1
+        user_index = N - 1
+        user_doc_tokens = processed_corpus[user_index]
+        total_content_tokens = len(user_doc_tokens)
+        
+        # User word counts
+        user_counts: Dict[str, int] = {}
+        for w in user_doc_tokens:
+            user_counts[w] = user_counts.get(w, 0) + 1
             
-        N = len(processed_docs)
-        all_words = sorted(list(set([w for doc in processed_docs for w in doc])))
+        unique_user_words = sorted(list(user_counts.keys()))
         
+        # Step 4: IDF calculation across dynamic corpus
         idf_data: List[Dict[str, Any]] = []
         idf_map: Dict[str, float] = {}
-        for word in all_words:
-            df = sum(1 for doc in processed_docs if word in doc)
-            # Use exact requested formula: log(N / df)
-            idf = math.log(N / df) if df > 0 else 0.0
+        for word in unique_user_words:
+            df = sum(1 for doc in processed_corpus if word in doc)
+            idf = math.log((1.0 + N) / (1.0 + df)) + 1.0
             idf_map[word] = idf
             idf_data.append({
                 'word': word,
                 'df': df,
-                'calculation': f"log({N}/{df})",
+                'calculation': f"log((1+{N})/(1+{df})) + 1",
                 'idf': round(idf, 4)
             })
             
-        sentence_tf: Any = []
-        for i, doc in enumerate(processed_docs):
-            doc_len = len(doc)
-            counts = {}
-            for w in doc:
-                counts[w] = counts.get(w, 0) + 1
+        # Step 3: TF for user input
+        words_tf_list: List[Dict[str, Any]] = []
+        for word in unique_user_words:
+            count = user_counts[word]
+            tf_val = float(count) / float(total_content_tokens) if total_content_tokens > 0 else 0.0
+            words_tf_list.append({
+                'word': word,
+                'count': count,
+                'calculation': f"{count}/{total_content_tokens}",
+                'tf': round(tf_val, 4)
+            })
             
-            words_tf_list: Any = []
-            for word, count in counts.items():
-                tf_val = float(count) / float(doc_len) if doc_len > 0 else 0.0
-                words_tf_list.append({
-                    'word': word,
-                    'count': count,
-                    'calculation': f"{count}/{doc_len}",
-                    'tf': round(tf_val, 4)
-                })
-            
-            sentence_data: Any = {
-                'sentence': str(documents[i]),
-                'words': words_tf_list
-            }
-            sentence_tf.append(sentence_data)
-            
-        final_scores = []
-        # Group by word across documents
-        for word in all_words:
-            total_tf = 0.0
-            for doc in processed_docs:
-                doc_len = len(doc)
-                if word in doc and doc_len > 0:
-                    word_count = doc.count(word)
-                    total_tf += (float(word_count) / float(doc_len))
-            
+        sentence_tf = [{
+            'sentence': text,
+            'words': words_tf_list
+        }]
+        
+        # Step 5: TF-IDF scores
+        final_scores: List[Dict[str, Any]] = []
+        for word in unique_user_words:
+            count = user_counts[word]
+            tf_val = float(count) / float(total_content_tokens) if total_content_tokens > 0 else 0.0
             idf = idf_map[word]
-            score = total_tf * idf
-            uniqueness = "Unique/Important" if idf > 0 else "Common (0 IDF)"
+            score = tf_val * idf
+            uniqueness = "Unique/High IDF" if idf >= 2.0 else "Common in Corpus"
             final_scores.append({
                 'word': word,
-                'tf': round(float(total_tf), 4),
+                'tf': round(float(tf_val), 4),
                 'idf': round(float(idf), 4),
                 'score': round(float(score), 4),
                 'uniqueness': uniqueness
             })
             
-        final_scores.sort(key=lambda x: x['score'], reverse=True)
-            
+        final_scores.sort(key=lambda x: (x['score'], x['word']), reverse=True)
+        
+        # Return format expected by app.py and script.js
         return {
-            'sentences': documents,
-            'processed_sentences': [", ".join(d) for d in processed_docs],
+            'strategy': f"Dynamic Corpus (10 Reference Docs + 1 User Input Doc, N={N})",
+            'sentences': [f"User Input: \"{text}\""],
+            'processed_sentences': [", ".join(user_doc_tokens)],
             'per_sentence_tf': sentence_tf,
             'corpus_size': N,
             'idf_data': idf_data,

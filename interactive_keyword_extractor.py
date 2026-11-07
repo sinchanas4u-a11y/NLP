@@ -212,20 +212,25 @@ class KeywordExtractor:
         Returns:
             List of (keyword, score) tuples
         """
-        # Initialize TF-IDF vectorizer with smooth_idf=True fitted on fixed reference corpus
+        # Initialize TF-IDF vectorizer with smooth_idf=True and norm=None fitted on dynamic corpus
+        if not text or not text.strip():
+            return []
+            
+        dynamic_corpus = list(REFERENCE_CORPUS) + [text]
         vectorizer = TfidfVectorizer(
             smooth_idf=True,
-            stop_words='english'
+            norm=None,
+            stop_words='english',
+            token_pattern=r'(?u)\b[a-zA-Z]+\b'
         )
         
         try:
-            vectorizer.fit(REFERENCE_CORPUS)
-            tfidf_matrix: Any = vectorizer.transform([text])
+            tfidf_matrix: Any = vectorizer.fit_transform(dynamic_corpus)
             feature_names = vectorizer.get_feature_names_out()
-            scores = np.asarray(tfidf_matrix.toarray()).flatten()
+            scores = np.asarray(tfidf_matrix[-1].toarray()).flatten()
             
             keywords: List[Tuple[str, float]] = [(str(feature_names[i]), float(scores[i])) for i in range(len(feature_names)) if scores[i] > 0]
-            keywords.sort(key=lambda x: x[1], reverse=True)
+            keywords.sort(key=lambda x: (x[1], x[0]), reverse=True)
             return keywords[:top_n] if top_n else keywords
         except Exception as e:
             print(f"TF-IDF extraction error: {e}")
