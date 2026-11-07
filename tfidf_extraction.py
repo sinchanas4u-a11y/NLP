@@ -66,7 +66,7 @@ class TFIDFExtractor:
                         
                         total_tfidf[word] += tfidf
                         
-            keywords = [(str(w), round(float(s), 4)) for w, s in total_tfidf.items()]
+            keywords = [(w, round(float(s), 4)) for w, s in total_tfidf.items()]
             keywords.sort(key=lambda x: x[1], reverse=True)
             
             return keywords[:top_n] if top_n else keywords
@@ -114,8 +114,8 @@ class TFIDFExtractor:
             for word, count in counts.items():
                 tf_val = float(count) / float(doc_len) if doc_len > 0 else 0.0
                 words_tf_list.append({
-                    'word': str(word),
-                    'count': int(count),
+                    'word': word,
+                    'count': count,
                     'calculation': f"{count}/{doc_len}",
                     'tf': round(tf_val, 4)
                 })

@@ -5,7 +5,8 @@ A command-line program that accepts user text input and extracts keywords using 
 
 import re
 import string
-from typing import List, Tuple
+from typing import List, Tuple, Any
+import numpy as np  # type: ignore
 from collections import Counter
 
 # NLP Libraries
@@ -219,11 +220,11 @@ class KeywordExtractor:
         
         try:
             vectorizer.fit(REFERENCE_CORPUS)
-            tfidf_matrix = vectorizer.transform([text])
+            tfidf_matrix: Any = vectorizer.transform([text])
             feature_names = vectorizer.get_feature_names_out()
-            scores = tfidf_matrix[0].toarray().flatten()
+            scores = np.asarray(tfidf_matrix.toarray()).flatten()
             
-            keywords = [(feature_names[i], float(scores[i])) for i in range(len(feature_names)) if scores[i] > 0]
+            keywords: List[Tuple[str, float]] = [(str(feature_names[i]), float(scores[i])) for i in range(len(feature_names)) if scores[i] > 0]
             keywords.sort(key=lambda x: x[1], reverse=True)
             return keywords[:top_n] if top_n else keywords
         except Exception as e:
@@ -275,7 +276,7 @@ class KeywordExtractor:
             if self.keybert_model is None:
                 return []
                 
-            keywords = self.keybert_model.extract_keywords(  # type: ignore
+            raw_keywords: Any = self.keybert_model.extract_keywords(  # type: ignore
                 text,
                 keyphrase_ngram_range=(1, 2),
                 stop_words='english',
@@ -284,7 +285,12 @@ class KeywordExtractor:
                 diversity=0.7
             )
             
-            return [(kw, float(score)) for kw, score in keywords]
+            result: List[Tuple[str, float]] = []
+            if isinstance(raw_keywords, list):
+                for item in raw_keywords:
+                    if isinstance(item, tuple) and len(item) == 2:
+                        result.append((str(item[0]), float(item[1])))
+            return result
         except Exception as e:
             print(f"KeyBERT extraction error: {e}")
             return []

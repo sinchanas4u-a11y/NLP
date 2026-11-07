@@ -42,7 +42,7 @@ class KeyBERTExtractor:
         for i, (kw, score) in enumerate(keywords, 1):
             print(f"{i:<6} | {kw:<30} | {score:.4f}")
             
-        return [(str(kw), float(score)) for kw, score in keywords]
+        return [(kw, float(score)) for kw, score in keywords]
 
     def extract(self, text: str, top_n: Optional[int] = 10) -> List[Tuple[str, float]]:
         """Extract keywords using robust parameters and fallbacks."""
@@ -50,14 +50,14 @@ class KeyBERTExtractor:
             print("Validation Error: Input text is empty. Please provide meaningful text.")
             return [("No valid text provided", 0.0)]
             
-        model = self._load_model()
+        model: Any = self._load_model()
         if model is None:
             return [("KeyBERT Model failed to load", 0.0)]
             
         extract_n = top_n if top_n and top_n > 0 else 10
         try:
             # 1st attempt: robust parameters with up to trigrams
-            keywords = model.extract_keywords(
+            raw_keywords: Any = model.extract_keywords(
                 text,
                 keyphrase_ngram_range=(1, 3),
                 stop_words='english',
@@ -65,9 +65,9 @@ class KeyBERTExtractor:
             )
             
             # If nothing returned, fallback 1: remove english stop_words requirement (helps short text)
-            if not keywords:
+            if not raw_keywords:
                 print("Retrieval yielded empty results. Attempting Fallback 1: No Stopwords filter.")
-                keywords = model.extract_keywords(
+                raw_keywords = model.extract_keywords(
                     text,
                     keyphrase_ngram_range=(1, 3),
                     stop_words=None,
@@ -75,9 +75,9 @@ class KeyBERTExtractor:
                 )
                 
             # If still nothing returned, fallback 2: single-grams only
-            if not keywords:
+            if not raw_keywords:
                 print("Retrieval yielded empty results. Attempting Fallback 2: Unigrams only.")
-                keywords = model.extract_keywords(
+                raw_keywords = model.extract_keywords(
                     text,
                     keyphrase_ngram_range=(1, 1),
                     stop_words=None,
@@ -85,12 +85,17 @@ class KeyBERTExtractor:
                 )
 
             # Final validation check
-            if not keywords:
+            if not raw_keywords:
                 print("Warning: KeyBERT could not extract any keywords from this text.")
                 return [("No meaningful keywords found", 0.0)]
             
             # Format and return the required table mapping (ensuring list tuple structure)
-            return self._format_output(keywords, extract_n)
+            formatted_keywords: List[Tuple[str, float]] = []
+            if isinstance(raw_keywords, list):
+                for item in raw_keywords:
+                    if isinstance(item, tuple) and len(item) == 2:
+                        formatted_keywords.append((str(item[0]), float(item[1])))
+            return self._format_output(formatted_keywords, extract_n)
                 
         except Exception as e:
             print(f"KeyBERT extraction error: {e}")

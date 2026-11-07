@@ -11,6 +11,7 @@ from keybert_extraction import KeyBERTExtractor  # type: ignore
 from app_cli import display_all_methods_calculations, KeywordExtractor  # type: ignore
 import re
 import os
+from typing import Dict, Any
 
 # Fix for potential OpenMP crashes on Windows with PyTorch/Transformers
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
@@ -40,7 +41,7 @@ def extract():
     if len(text.strip()) < 10:
         return jsonify({'error': 'Text too short'}), 400
 
-    results = {}
+    results: Dict[str, Any] = {}
     
     # 1. RAKE Results
     rake_keywords = extractors['rake'].extract(text)
@@ -54,8 +55,8 @@ def extract():
         'keywords': [{'keyword': str(kw), 'score': float(s)} for kw, s in rake_keywords[:10]],  # type: ignore
         'calculation_details': {
             'steps': {
-                'step1_stopwords': {'stopwords': sorted(list(set(found_stopwords))), 'count': int(len(set(found_stopwords)))},
-                'step2_phrases': [str(p) for p in extractors['rake'].get_phrases(text)],
+                'step1_stopwords': {'stopwords': sorted(list(set(found_stopwords))), 'count': len(set(found_stopwords))},
+                'step2_phrases': list(extractors['rake'].get_phrases(text)),
                 'step3_word_frequencies': [{'word': str(w), 'frequency': int(f)} for w, f in sorted(rake_metrics['frequencies'].items())],
                 'step4_word_degrees': [{'word': str(w), 'degree': int(d), 'explanation': f"Co-occurs with {d} words"} for w, d in sorted(rake_metrics['degrees'].items())],
                 'step5_word_scores': [{'word': str(w), 'calculation': f"{rake_metrics['degrees'][w]}/{rake_metrics['frequencies'][w]}", 'score': float(rake_metrics['scores'][w])} for w in sorted(rake_metrics['scores'].keys())],  # type: ignore

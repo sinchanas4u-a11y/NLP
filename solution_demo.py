@@ -195,7 +195,7 @@ def extract_keybert(text: str, top_n: int = 5) -> List[Tuple[str, float]]:
     try:
         from keybert import KeyBERT  # type: ignore
         kw_model = KeyBERT(model="all-MiniLM-L6-v2")
-        keywords = kw_model.extract_keywords(
+        raw_keywords: Any = kw_model.extract_keywords(
             text,
             keyphrase_ngram_range=(1, 2),
             stop_words='english',
@@ -203,7 +203,12 @@ def extract_keybert(text: str, top_n: int = 5) -> List[Tuple[str, float]]:
             use_mmr=True,
             diversity=0.7
         )
-        return [(str(kw), float(score)) for kw, score in keywords]
+        extracted: List[Tuple[str, float]] = []
+        if isinstance(raw_keywords, list):
+            for item in raw_keywords:
+                if isinstance(item, tuple) and len(item) == 2:
+                    extracted.append((str(item[0]), float(item[1])))  # type: ignore
+        return extracted
     except Exception as e:
         print(f"KeyBERT unavailable or error: {e}")
         return []
@@ -223,14 +228,15 @@ def extract_tfidf_with_details(user_text: str, reference_corpus: List[str]) -> L
     vectorizer = TfidfVectorizer(smooth_idf=True, stop_words='english')
     vectorizer.fit(reference_corpus)
 
-    tfidf_matrix = vectorizer.transform([user_text])
+    tfidf_matrix: Any = vectorizer.transform([user_text])
     feature_names = vectorizer.get_feature_names_out()
-    tfidf_scores = tfidf_matrix.toarray()[0]
+    tfidf_scores = np.asarray(tfidf_matrix.toarray())[0]
     idf_values = vectorizer.idf_
 
     count_vec = CountVectorizer(vocabulary=vectorizer.vocabulary_, stop_words='english')
-    user_tf = count_vec.transform([user_text]).toarray()[0]
-    ref_counts = count_vec.transform(reference_corpus)
+    user_tf_mat: Any = count_vec.transform([user_text])
+    user_tf = np.asarray(user_tf_mat.toarray())[0]
+    ref_counts: Any = count_vec.transform(reference_corpus)
     ref_df = np.asarray((ref_counts > 0).sum(axis=0)).flatten()
 
     keyword_details = []
@@ -422,9 +428,9 @@ def display_all_methods_calculations(user_text: str, reference_corpus: Optional[
 
     max_len = max(len(rake_keywords), len(tfidf_keywords), len(keybert_keywords))
     for i in range(min(5, max_len)):
-        rake_kw = str(rake_keywords[i][0]) if i < len(rake_keywords) else ""
+        rake_kw = rake_keywords[i][0] if i < len(rake_keywords) else ""
         tfidf_kw = str(tfidf_keywords[i][0]) if i < len(tfidf_keywords) else ""
-        keybert_kw = str(keybert_keywords[i][0]) if i < len(keybert_keywords) else ""
+        keybert_kw = keybert_keywords[i][0] if i < len(keybert_keywords) else ""
         print(f"{rake_kw:<32} {tfidf_kw:<20} {keybert_kw}")
     print("=" * 70)
 

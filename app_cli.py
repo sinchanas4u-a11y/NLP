@@ -263,12 +263,13 @@ class KeywordExtractor:
             vectorizer = TfidfVectorizer(smooth_idf=True, stop_words='english')
             vectorizer.fit(self.reference_corpus)
             
-            tfidf_matrix = vectorizer.transform([text])
+            tfidf_matrix: Any = vectorizer.transform([text])
             feature_names = vectorizer.get_feature_names_out()
-            scores = tfidf_matrix.toarray()[0]
+            scores = np.asarray(tfidf_matrix.toarray())[0]
             
             count_vec = CountVectorizer(vocabulary=vectorizer.vocabulary_, stop_words='english')
-            user_counts = count_vec.transform([text]).toarray()[0]
+            user_tf_mat: Any = count_vec.transform([text])
+            user_counts = np.asarray(user_tf_mat.toarray())[0]
             
             keyword_scores = []
             for idx in range(len(feature_names)):
@@ -279,7 +280,7 @@ class KeywordExtractor:
             keyword_scores.sort(key=lambda x: x[1], reverse=True)
             
             if top_n is not None:
-                return keyword_scores[:int(top_n)]
+                return keyword_scores[:top_n]
             return keyword_scores
         except Exception as e:
             print(f"TF-IDF extraction error: {e}")
@@ -294,14 +295,15 @@ class KeywordExtractor:
         vectorizer = TfidfVectorizer(smooth_idf=True, stop_words='english')
         vectorizer.fit(ref_corpus)
         
-        tfidf_matrix = vectorizer.transform([text])
+        tfidf_matrix: Any = vectorizer.transform([text])
         feature_names = vectorizer.get_feature_names_out()
-        scores = tfidf_matrix.toarray()[0]
+        scores = np.asarray(tfidf_matrix.toarray())[0]
         idf_values = vectorizer.idf_
         
         count_vec = CountVectorizer(vocabulary=vectorizer.vocabulary_, stop_words='english')
-        user_tf = count_vec.transform([text]).toarray()[0]
-        ref_counts = count_vec.transform(ref_corpus)
+        user_tf_mat: Any = count_vec.transform([text])
+        user_tf = np.asarray(user_tf_mat.toarray())[0]
+        ref_counts: Any = count_vec.transform(ref_corpus)
         ref_df = np.asarray((ref_counts > 0).sum(axis=0)).flatten()
         
         results = []
@@ -388,7 +390,7 @@ class KeywordExtractor:
             # If no limit specified, extract more and filter by score
             extract_n = top_n if top_n else 50
             
-            keywords = self.keybert_model.extract_keywords(  # type: ignore
+            raw_keywords: Any = self.keybert_model.extract_keywords(  # type: ignore
                 text,
                 keyphrase_ngram_range=(1, 2),
                 stop_words='english',
@@ -397,10 +399,16 @@ class KeywordExtractor:
                 diversity=0.7
             )
             
-            result = [(kw, float(score)) for kw, score in keywords if score > 0.1]
+            result: List[Tuple[str, float]] = []
+            if isinstance(raw_keywords, list):
+                for item in raw_keywords:
+                    if isinstance(item, tuple) and len(item) == 2:
+                        score_val = float(item[1])
+                        if score_val > 0.1:
+                            result.append((str(item[0]), score_val))
             
             if top_n:
-                return result[:top_n]  # type: ignore
+                return result[:top_n]
             return result
         except Exception as e:
             print(f"KeyBERT extraction error: {e}")
@@ -798,9 +806,9 @@ def display_all_methods_calculations(text: str, documents: Optional[List[str]] =
 
     max_len = max(len(rake_keywords), len(tfidf_keywords), len(keybert_keywords))
     for i in range(min(5, max_len)):
-        rake_kw = str(rake_keywords[i][0]) if i < len(rake_keywords) else ""
+        rake_kw = rake_keywords[i][0] if i < len(rake_keywords) else ""
         tfidf_kw = str(tfidf_keywords[i][0]) if i < len(tfidf_keywords) else ""
-        keybert_kw = str(keybert_keywords[i][0]) if i < len(keybert_keywords) else ""
+        keybert_kw = keybert_keywords[i][0] if i < len(keybert_keywords) else ""
         print(f"{rake_kw:<25} {tfidf_kw:<25} {keybert_kw}")
     
     print("\n" + "=" * 70)
